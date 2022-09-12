@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
 use bytes::{Buf, BytesMut};
-use std::io::Cursor;
-use tokio::io::{AsyncReadExt, BufWriter};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 
 use crate::frame::Frame;
+use crate::handler::handle;
 
 struct Connection {
     stream: BufWriter<TcpStream>,
@@ -35,9 +35,14 @@ impl Connection {
         }
     }
 
-    pub async fn write_frame(&mut self, frame: Frame) {
-        todo!()
+    pub async fn write_frame(&mut self, frame: Frame) -> Result<()> {
+        self.stream.write_all(&frame.0).await?;
+        self.stream.write_u8(b'\n').await?;
+        self.stream.flush().await?;
+
+        Ok(())
     }
+
     fn parse_frame(&mut self) -> Option<Frame> {
         if let Some((frame, len)) = Frame::parse(&self.buffer) {
             self.buffer.advance(len);
@@ -47,10 +52,31 @@ impl Connection {
     }
 }
 
-pub async fn handle_connection(mut stream: TcpStream) -> Result<()> {
+pub async fn handle_connection(stream: TcpStream) -> Result<()> {
     let mut connection = Connection::new(stream);
 
     loop {
-        let new_frame = connection.read_frame().await?;
+        match connection.read_frame().await? {
+            Some(new_frame) => {
+                match handle(new_frame.0) {
+                    Ok(response) => {
+                        let frame = Frame::from(response);
+                        connection.write_frame(frame).await?;
+                    }
+                    Err(err) => {
+                        // An error happened while handling the request.
+                        // A malformed response must be sent back and the connection terminated
+                        let error_message = format!("{{\"error\":\"{}\"}}", err);
+                        let error_frame = Frame::from(error_message.as_bytes());
+                        connection.write_frame(error_frame).await?;
+                        break;
+                    }
+                }
+            }
+            // Received EOF from client, disconnect.
+            None => break,
+        };
     }
+
+    Ok(())
 }

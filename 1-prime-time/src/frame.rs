@@ -1,7 +1,7 @@
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 
 #[derive(Debug, PartialEq)]
-pub struct Frame(Bytes);
+pub struct Frame(pub Bytes);
 
 impl Frame {
     pub fn parse(buffer: &BytesMut) -> Option<(Self, usize)> {
@@ -21,8 +21,16 @@ impl From<&[u8]> for Frame {
     }
 }
 
+impl From<Vec<u8>> for Frame {
+    fn from(input: Vec<u8>) -> Self {
+        Self(Bytes::from(input))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use bytes::BufMut;
+
     use super::*;
 
     #[test]
