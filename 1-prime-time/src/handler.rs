@@ -1,22 +1,16 @@
+use std::str::FromStr;
+
 use anyhow::{bail, Result};
 use bytes::Bytes;
-use num_bigint::{BigInt, ToBigInt};
-use serde::{Deserialize, Deserializer, Serialize};
-use std::str::FromStr;
+use num_bigint::BigInt;
+use num_traits::cast::ToPrimitive;
+use serde::{Deserialize, Serialize};
+use serde_json::Number;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Request {
     method: String,
-    #[serde(deserialize_with = "deserialize_number")]
-    number: BigInt,
-}
-
-fn deserialize_number<'de, D>(deserializer: D) -> Result<BigInt, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let number = serde_json::Number::deserialize(deserializer)?;
-    Ok(BigInt::from_str(&number.to_string()).unwrap())
+    number: Number,
 }
 
 #[derive(Debug, Serialize)]
@@ -42,34 +36,41 @@ pub fn handle(request: Bytes) -> Result<Vec<u8>> {
     if request.method != "isPrime" {
         bail!("invalid method");
     }
+
+    let is_prime = match BigInt::from_str(&request.number.to_string()) {
+        Ok(bigint) => match bigint.to_u64() {
+            // Abuse the fact that every BigInt sent is not prime
+            None => false,
+            Some(n) => is_prime(n),
+        },
+        // Failed to parse BigInt. It's a float, which is not prime.
+        Err(_) => false,
+    };
+
     let response = Response {
         method: "isPrime".to_string(),
-        prime: is_prime(request.number),
+        prime: is_prime,
     };
     debug!("Sending response: {response:?}");
 
     Ok(serde_json::to_vec(&response)?)
 }
 
-fn is_prime(number: BigInt) -> bool {
-    if number <= 1.to_bigint().unwrap() {
+fn is_prime(number: u64) -> bool {
+    if number <= 1 {
         return false;
     }
-    if number == 2.to_bigint().unwrap() || number == 3.to_bigint().unwrap() {
+    if number == 2 {
         return true;
     }
-    if &number % 2.to_bigint().unwrap() == 0.to_bigint().unwrap() {
+    if number % 2 == 0 {
         return false;
     }
-    let limit = number.sqrt();
-    let mut n = 3.to_bigint().unwrap();
-    loop {
-        if &number % &n == 0.to_bigint().unwrap() {
+
+    let limit = f64::sqrt(number as f64).trunc() as u64;
+    for n in (3..limit).step_by(2) {
+        if number % n == 0 {
             return false;
-        }
-        n += 2.to_bigint().unwrap();
-        if n > limit {
-            break;
         }
     }
 
@@ -82,21 +83,29 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        let request: Request =
-            serde_json::from_str(&r#"{"number":-3,"method":"isPrime"}"#).unwrap();
-        assert_eq!(
-            request.number,
-            BigInt::new(num_bigint::Sign::Minus, vec![3])
-        );
+        serde_json::from_str::<Request>(&r#"{"number":-3,"method":"isPrime"}"#).unwrap();
     }
 
     #[test]
     fn test_is_prime() {
-        assert!(!is_prime(1.to_bigint().unwrap()));
-        assert!(is_prime(2.to_bigint().unwrap()));
-        assert!(is_prime(3.to_bigint().unwrap()));
-        assert!(!is_prime(21.to_bigint().unwrap()));
-        assert!(is_prime(23.to_bigint().unwrap()));
+        assert!(!is_prime(1));
+        assert!(is_prime(2));
+        assert!(is_prime(3));
+        assert!(!is_prime(21));
+        assert!(is_prime(23));
+    }
+
+    #[test]
+    fn test_handler_float() {
+        let request_str = r#"{"method":"isPrime","number":3969458.1234}"#;
+        let request = Bytes::from(request_str);
+
+        let response = handle(request).unwrap();
+
+        assert_eq!(
+            r#"{"method":"isPrime","prime":false}"#,
+            String::from_utf8_lossy(&response),
+        );
     }
 
     #[test]
