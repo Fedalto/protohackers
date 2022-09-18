@@ -55,27 +55,21 @@ impl Connection {
 pub async fn handle_connection(stream: TcpStream) -> Result<()> {
     let mut connection = Connection::new(stream);
 
-    loop {
-        match connection.read_frame().await? {
-            Some(new_frame) => {
-                match handle(new_frame.0) {
-                    Ok(response) => {
-                        let frame = Frame::from(response);
-                        connection.write_frame(frame).await?;
-                    }
-                    Err(err) => {
-                        // An error happened while handling the request.
-                        // A malformed response must be sent back and the connection terminated
-                        let error_message = format!("{{\"error\":\"{}\"}}", err);
-                        let error_frame = Frame::from(error_message.as_bytes());
-                        connection.write_frame(error_frame).await?;
-                        break;
-                    }
-                }
+    while let Some(new_frame) = connection.read_frame().await? {
+        match handle(new_frame.0) {
+            Ok(response) => {
+                let frame = Frame::from(response);
+                connection.write_frame(frame).await?;
             }
-            // Received EOF from client, disconnect.
-            None => break,
-        };
+            Err(err) => {
+                // An error happened while handling the request.
+                // A malformed response must be sent back and the connection terminated
+                let error_message = format!("{{\"error\":\"{}\"}}", err);
+                let error_frame = Frame::from(error_message.as_bytes());
+                connection.write_frame(error_frame).await?;
+                break;
+            }
+        }
     }
 
     Ok(())

@@ -17,5 +17,5 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(bind_address).await?;
     info!("Starting server at {bind_address}");
 
-    Ok(server::run(listener).await?)
+    server::run(listener).await
 }
