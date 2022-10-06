@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
@@ -17,7 +16,7 @@ pub enum ChatEvent {
 
 pub struct Server {
     listener: TcpListener,
-    joined_users: Arc<RwLock<HashSet<String>>>,
+    joined_users: Arc<RwLock<Vec<String>>>,
     chat_tx_channel: broadcast::Sender<ChatEvent>,
 }
 
@@ -27,7 +26,7 @@ impl Server {
         let (tx, _rx) = broadcast::channel(16);
         Ok(Self {
             listener,
-            joined_users: Arc::new(RwLock::new(HashSet::new())),
+            joined_users: Arc::new(RwLock::new(Vec::new())),
             chat_tx_channel: tx,
         })
     }
