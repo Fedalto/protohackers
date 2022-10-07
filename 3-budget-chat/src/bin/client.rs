@@ -1,6 +1,3 @@
-use std::io;
-use std::io::Write;
-
 use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -18,8 +15,13 @@ async fn main() -> Result<()> {
     loop {
         tokio::select! {
             line = received_lines.next_line() => {
-                println!("{}", line.unwrap().unwrap());
-                io::stdout().flush().unwrap();
+                match line.unwrap() {
+                    // Received EOF from server. Quit
+                    None => return Ok(()),
+                    Some(line) => {
+                        println!("{}", line);
+                    }
+                }
             }
             line = lines_to_send.next_line() => {
                 tx.write_all(format!("{}\n", line.unwrap().unwrap()).as_bytes()).await?;
