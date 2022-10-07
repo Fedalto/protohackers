@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
@@ -34,14 +34,7 @@ impl Connection {
     }
 
     pub async fn handle(mut self) -> Result<()> {
-        let greetings_msg = "Welcome to budgetchat! What shall I call you?\n";
-        self.socket_tx.write_all(greetings_msg.as_bytes()).await?;
-        let mut username = String::new();
-        self.socket_rx.read_line(&mut username).await?;
-        let self_username = username.trim_end().to_string();
-
-        self.send_joined_users().await?;
-        self.join_user(&self_username);
+        let self_username = self.user_join().await?;
 
         let mut messages = self.socket_rx.lines();
         loop {
@@ -85,10 +78,16 @@ impl Connection {
             }
         }
 
-        // User is leaving the chat. We can ignore the error if any.
+        // User left the chat
+        {
+            let mut users = self.joined_users.write().unwrap();
+            let index = users.binary_search(&self_username).unwrap();
+            users.remove(index);
+        }
         let _ = self
             .chat_tx_channel
             .send(ChatEvent::UserLeft(self_username));
+
         Ok(())
     }
 
@@ -103,12 +102,38 @@ impl Connection {
 
     /// Add username to the list of users in the chat room
     /// and send to all other users that this one have joined
-    fn join_user(&self, username: &str) {
-        let mut users = self.joined_users.write().unwrap();
-        users.push(username.to_owned());
+    async fn user_join(&mut self) -> Result<String> {
+        let greetings_msg = "Welcome to budgetchat! What shall I call you?\n";
+        self.socket_tx.write_all(greetings_msg.as_bytes()).await?;
+
+        let mut username = String::new();
+        self.socket_rx.read_line(&mut username).await?;
+        username = username.trim_end().to_string();
+
+        if username.is_empty() {
+            bail!("Invalid username");
+        }
+
+        let is_username_taken = {
+            let users = self.joined_users.read().unwrap();
+            users.binary_search(&username)
+        };
+
+        match is_username_taken {
+            Ok(_) => {
+                bail!("Username {username} already taken");
+            }
+            Err(i) => {
+                self.send_joined_users().await?;
+                let mut users = self.joined_users.write().unwrap();
+                users.insert(i, username.to_owned());
+            }
+        }
 
         self.chat_tx_channel
             .send(ChatEvent::UserJoined(username.to_owned()))
             .unwrap();
+
+        Ok(username)
     }
 }
