@@ -32,6 +32,7 @@ impl Connection {
 
     pub async fn handle(mut self) -> Result<()> {
         let self_username = self.user_join().await?;
+        info!("{self_username} joined");
 
         let mut chat_rx_channel = self.chat_tx_channel.subscribe();
         let mut messages = self.socket_rx.lines();
@@ -107,8 +108,12 @@ impl Connection {
         let mut username = String::new();
         self.socket_rx.read_line(&mut username).await?;
         username = username.trim_end().to_string();
+        info!("New username: {username}");
 
         if username.is_empty() {
+            bail!("Invalid username");
+        }
+        if let Some(_) = username.find(|c: char| !c.is_ascii_alphanumeric()) {
             bail!("Invalid username");
         }
 

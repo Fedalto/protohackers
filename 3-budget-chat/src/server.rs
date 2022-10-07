@@ -38,9 +38,12 @@ impl Server {
 
             let joined_users = Arc::clone(&self.joined_users);
             let tx = self.chat_tx_channel.clone();
-            tokio::spawn(async {
+            tokio::spawn(async move {
                 let connection = Connection::new(socket, joined_users, tx);
-                connection.handle().await
+                if let Err(err) = connection.handle().await {
+                    error!("[{address}] Error: {err}");
+                }
+                info!("Disconnecting {address}");
             });
         }
     }
