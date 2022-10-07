@@ -40,4 +40,8 @@ async fn test_2_clients_connected() {
     buffer.clear();
     connection2.read_line(&mut buffer).await.unwrap();
     assert_eq!(buffer, "* Chatting now: Leo\n");
+
+    buffer.clear();
+    connection1.read_line(&mut buffer).await.unwrap();
+    assert_eq!(buffer, "* Ana has entered the room\n");
 }

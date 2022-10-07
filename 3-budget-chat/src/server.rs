@@ -9,7 +9,7 @@ use crate::connection::Connection;
 
 #[derive(Debug, Clone)]
 pub enum ChatEvent {
-    Message(String),
+    Message { username: String, message: String },
     UserJoined(String),
     UserLeft(String),
 }
