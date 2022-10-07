@@ -13,7 +13,6 @@ pub struct Connection {
     socket_tx: OwnedWriteHalf,
     joined_users: Arc<RwLock<Vec<String>>>,
     chat_tx_channel: broadcast::Sender<ChatEvent>,
-    chat_rx_channel: broadcast::Receiver<ChatEvent>,
 }
 
 impl Connection {
@@ -21,7 +20,6 @@ impl Connection {
         socket: TcpStream,
         joined_users: Arc<RwLock<Vec<String>>>,
         chat_tx_channel: broadcast::Sender<ChatEvent>,
-        chat_rx_channel: broadcast::Receiver<ChatEvent>,
     ) -> Self {
         let (socket_rx, socket_tx) = socket.into_split();
         Self {
@@ -29,13 +27,13 @@ impl Connection {
             socket_tx,
             joined_users,
             chat_tx_channel,
-            chat_rx_channel,
         }
     }
 
     pub async fn handle(mut self) -> Result<()> {
         let self_username = self.user_join().await?;
 
+        let mut chat_rx_channel = self.chat_tx_channel.subscribe();
         let mut messages = self.socket_rx.lines();
         loop {
             tokio::select! {
@@ -50,7 +48,7 @@ impl Connection {
                         _ => break,
                     }
                 }
-                Ok(event) = self.chat_rx_channel.recv() => {
+                Ok(event) = chat_rx_channel.recv() => {
                     match event {
                         ChatEvent::UserJoined(username) => {
                             if username != self_username {
@@ -130,9 +128,10 @@ impl Connection {
             }
         }
 
-        self.chat_tx_channel
-            .send(ChatEvent::UserJoined(username.to_owned()))
-            .unwrap();
+        // Ignore the error as we might be the first user to join the chat
+        let _ = self
+            .chat_tx_channel
+            .send(ChatEvent::UserJoined(username.to_owned()));
 
         Ok(username)
     }

@@ -38,9 +38,8 @@ impl Server {
 
             let joined_users = Arc::clone(&self.joined_users);
             let tx = self.chat_tx_channel.clone();
-            let rx = self.chat_tx_channel.subscribe();
             tokio::spawn(async {
-                let connection = Connection::new(socket, joined_users, tx, rx);
+                let connection = Connection::new(socket, joined_users, tx);
                 connection.handle().await
             });
         }
