@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::mem;
 use std::net::SocketAddr;
 
 use anyhow::Result;
@@ -27,11 +28,11 @@ pub async fn handle_new_connection(mut socket: TcpStream, address: SocketAddr) -
                     // EOF
                     Ok(0) => break,
                     Ok(_) => {
-                        let line = String::from_utf8(incoming_buffer.clone())?;
+                        let line_vec = mem::take(&mut incoming_buffer);
+                        let line = String::from_utf8(line_vec)?;
                         debug!("{address} Received: {}", line.trim_end());
                         let intercepted_line = rewrite_boguscoin_address(&line);
                         upstream_tx.write_all(intercepted_line.as_bytes()).await?;
-                        incoming_buffer.clear();
                     }
                     _ => break,
                 }
