@@ -119,7 +119,7 @@ async fn ticket_processor(mut rx: mpsc::Receiver<ProcessorCommand>) {
                 let ticket_day2 = ticket.timestamp2 / 86400;
                 let days = ticket_days
                     .entry(ticket.plate.clone())
-                    .or_insert(HashSet::new());
+                    .or_insert_with(HashSet::new);
                 if !days.contains(&ticket_day1) && !days.contains(&ticket_day2) {
                     days.insert(ticket_day1);
                     days.insert(ticket_day2);

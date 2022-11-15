@@ -1,61 +1,17 @@
-use std::io::{Cursor, ErrorKind};
+use std::io::ErrorKind;
 
 use anyhow::{anyhow, bail, Result};
-use bytes::Buf;
 use tokio::io::{AsyncBufRead, AsyncReadExt};
 
 #[derive(Debug)]
 pub(crate) enum ClientFrame {
-    // Error(String),
     Plate { plate: Vec<u8>, timestamp: u32 },
-    // Ticket {
-    //     plate: Vec<u8>,
-    //     road: u16,
-    //     mile1: u16,
-    //     timestamp1: u32,
-    //     mile2: u16,
-    //     timestamp2: u32,
-    //     speed: u16,
-    // },
     WantHeartbeat { interval: u32 },
-    // Heartbeat,
     IAmCamera { road: u16, mile: u16, limit: u16 },
     IAmDispatcher { num_roads: u8, roads: Vec<u16> },
 }
 
 impl ClientFrame {
-    /// Check if a Frame could be parsed from the src
-    pub fn check(src: &mut Cursor<&[u8]>) -> bool {
-        if !src.has_remaining() {
-            return false;
-        }
-
-        match src.get_u8() {
-            // Plate
-            0x20 => {
-                let str_len = src.get_u8();
-                (str_len as usize + 4) <= src.remaining()
-            }
-            // WantHeartbeat
-            0x40 => src.remaining() >= 4,
-            // IAmCamera
-            0x80 => src.remaining() >= 6,
-            // IAmDispatcher
-            0x81 => {
-                let num_roads = src.get_u8();
-                src.remaining() >= 2 * num_roads as usize
-            }
-
-            _ => {
-                panic!(
-                    "Error checking frame. position={}, buffer={:?}",
-                    src.position(),
-                    src
-                );
-            }
-        }
-    }
-
     pub async fn parse<R: AsyncBufRead + Unpin>(src: &mut R) -> Result<Option<ClientFrame>> {
         let frame = match src.read_u8().await {
             // Plate

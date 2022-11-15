@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use anyhow::{bail, Result};
-use bytes::BytesMut;
 use tokio::io::{AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
@@ -39,7 +38,6 @@ pub(crate) async fn handle_new_connection(
                     Some(ClientFrame::IAmCamera { road, mile, limit }) => {
                         let road_channel = map.get_or_create_road(road, limit);
                         connection.set_client_type(ClientType::Camera {
-                            road,
                             mile,
                             road_channel,
                         }).await?;
@@ -98,7 +96,6 @@ pub(crate) async fn handle_new_connection(
 
 enum ClientType {
     Camera {
-        road: u16,
         mile: u16,
         road_channel: mpsc::Sender<Plate>,
     },
@@ -111,7 +108,6 @@ struct ConnectionHandler {
     address: SocketAddr,
     read_socket: BufReader<OwnedReadHalf>,
     write_channel: mpsc::Sender<ServerFrame>,
-    buffer: BytesMut,
     client_type: Option<ClientType>,
 }
 
@@ -125,7 +121,6 @@ impl ConnectionHandler {
             address,
             read_socket: BufReader::new(read),
             write_channel: write_channel_tx,
-            buffer: BytesMut::new(),
             client_type: None,
         }
     }
@@ -148,34 +143,7 @@ impl ConnectionHandler {
     /// This is cancel safe.
     pub async fn read_frame(&mut self) -> Result<Option<ClientFrame>> {
         ClientFrame::parse(&mut self.read_socket).await
-        // loop {
-        //     if let Some(frame) = self.parse_frame() {
-        //         return Ok(Some(frame));
-        //     }
-        //
-        //     // FIXME: This is causing a panic and I don't know why for sure.
-        //     // Maybe removing the self.buffer helps?
-        //     // It shouldn't be needed as `self.read_socket` is already buffered.
-        //     if 0 == self.read_socket.read_buf(&mut self.buffer).await.unwrap() {
-        //         // Reached EOF
-        //         return Ok(None);
-        //     }
-        // }
     }
-
-    // fn parse_frame(&mut self) -> Option<ClientFrame> {
-    //     let mut buffer = Cursor::new(&self.buffer[..]);
-    //
-    //     if ClientFrame::check(&mut buffer) {
-    //         buffer.set_position(0);
-    //         let frame = ClientFrame::parse(&mut buffer)
-    //             .context(format!("Client {}", self.address))
-    //             .unwrap();
-    //         self.buffer.advance(buffer.position() as usize);
-    //         return Some(frame);
-    //     }
-    //     None
-    // }
 
     pub async fn error(&self, error_msg: &str) {
         self.write_channel
