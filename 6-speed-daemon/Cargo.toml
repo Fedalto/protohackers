@@ -1,0 +1,16 @@
+[package]
+name = "speed-daemon"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.66"
+async-channel = "1.7.1"
+bytes = "1.2.1"
+clap = { version = "4.0.18", features = ["derive"] }
+clap-verbosity-flag = "2.0.0"
+env_logger = "0.9.1"
+log = "0.4.17"
+tokio = { version = "1.21.2", features = ["full"] }

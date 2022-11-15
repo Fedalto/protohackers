@@ -1,0 +1,27 @@
+use tokio::net::TcpListener;
+
+use crate::connection::handle_new_connection;
+use crate::road_map::IslandMap;
+
+pub struct Server {
+    listener: TcpListener,
+}
+
+impl Server {
+    pub fn new(listener: TcpListener) -> Self {
+        Self { listener }
+    }
+
+    pub async fn run(self) {
+        let island_map = IslandMap::new();
+        loop {
+            let (socket, address) = self.listener.accept().await.unwrap();
+            let map = island_map.clone();
+            tokio::spawn(async move {
+                handle_new_connection(socket, address, map).await.unwrap();
+                // error!("{}", error_message);
+                // }
+            });
+        }
+    }
+}
