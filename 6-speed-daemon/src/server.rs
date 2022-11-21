@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use tokio::net::TcpListener;
 
 use crate::connection::handle_new_connection;
@@ -10,6 +12,10 @@ pub struct Server {
 impl Server {
     pub fn new(listener: TcpListener) -> Self {
         Self { listener }
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.listener.local_addr().unwrap()
     }
 
     pub async fn run(self) {
