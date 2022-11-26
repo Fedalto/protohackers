@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::net::{ToSocketAddrs, UdpSocket};
@@ -20,6 +21,11 @@ impl Server {
             socket: Arc::new(socket),
             sessions: HashMap::new(),
         })
+    }
+
+    /// Returns the local address that this socket is bound to.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.socket.local_addr().unwrap()
     }
 
     pub async fn run(&mut self) -> Result<(), io::Error> {
