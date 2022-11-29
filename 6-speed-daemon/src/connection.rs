@@ -7,7 +7,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::frame::{ClientFrame, ServerFrame};
-use crate::heartbeat::Heartbeat;
+use crate::heartbeat::create_heartbeat;
 use crate::road_map::{IslandMap, Plate, ProcessorCommand};
 
 pub(crate) async fn handle_new_connection(
@@ -16,81 +16,85 @@ pub(crate) async fn handle_new_connection(
     map: IslandMap,
 ) -> Result<()> {
     let mut connection = ConnectionHandler::new(socket, address);
-    let mut heartbeat = Heartbeat::default();
 
     loop {
-        tokio::select! {
-            _ = heartbeat.tick() => {
-                // TODO: Send the write_channel to the Heartbeat and create a tokio task for it?
-                connection.write_channel.send(ServerFrame::Heartbeat).await.unwrap();
+        let frame = match connection.read_frame().await {
+            Ok(frame) => frame,
+            Err(err) => {
+                let _ = connection
+                    .write_channel
+                    .send(ServerFrame::Error(b"Error reading frame".to_vec()))
+                    .await;
+                bail!("Error reading frame. {err}");
             }
-            frame_res = connection.read_frame() => {
-                let frame = match frame_res {
-                    Ok(frame) => frame,
-                    Err(err) => {
-                        let _ = connection.write_channel.send(ServerFrame::Error(b"Error reading frame".to_vec())).await;
-                        bail!("Error reading frame. {err}");
-                    }
-                };
-                match frame {
-                    // Reached EOF
-                    None => return Ok(()),
-                    Some(ClientFrame::IAmCamera { road, mile, limit }) => {
-                        let road_channel = map.get_or_create_road(road, limit);
-                        connection.set_client_type(ClientType::Camera {
-                            mile,
-                            road_channel,
-                        }).await?;
-                    }
-                    Some(ClientFrame::IAmDispatcher { roads, .. }) => {
-                        connection.set_client_type(ClientType::Dispatcher { roads: roads.clone() }).await?;
-                        let (tx, rx) = oneshot::channel();
-                        map.ticket_processor.send(ProcessorCommand::NewDispatcher {
-                            roads, ch: tx
-                        }).await.unwrap();
-                        let ticket_channels = rx.await.unwrap();
-                        for ch in ticket_channels {
-                            let write_channel = connection.write_channel.clone();
-                            tokio::spawn(async move {
-                                loop {
-                                    let ticket = ch.recv().await.unwrap();
-                                    debug!("Dispatching new ticket. ticket={:?}", ticket);
-                                    let ticket_frame = ServerFrame::Ticket {
-                                        plate: ticket.plate,
-                                        road: ticket.road,
-                                        mile1: ticket.mile1,
-                                        timestamp1: ticket.timestamp1,
-                                        mile2: ticket.mile2,
-                                        timestamp2: ticket.timestamp2,
-                                        speed: ticket.speed,
-                                    };
-                                    write_channel.send(ticket_frame).await.unwrap();  // FIXME
-                                }
-                            });
+        };
+        match frame {
+            // Reached EOF
+            None => return Ok(()),
+            Some(ClientFrame::IAmCamera { road, mile, limit }) => {
+                let road_channel = map.get_or_create_road(road, limit);
+                connection
+                    .set_client_type(ClientType::Camera { mile, road_channel })
+                    .await?;
+            }
+            Some(ClientFrame::IAmDispatcher { roads, .. }) => {
+                connection
+                    .set_client_type(ClientType::Dispatcher {
+                        roads: roads.clone(),
+                    })
+                    .await?;
+                let (tx, rx) = oneshot::channel();
+                map.ticket_processor
+                    .send(ProcessorCommand::NewDispatcher { roads, ch: tx })
+                    .await
+                    .unwrap();
+                let ticket_channels = rx.await.unwrap();
+                for ch in ticket_channels {
+                    let write_channel = connection.write_channel.clone();
+                    tokio::spawn(async move {
+                        loop {
+                            let ticket = ch.recv().await.unwrap();
+                            debug!("Dispatching new ticket. ticket={:?}", ticket);
+                            let ticket_frame = ServerFrame::Ticket {
+                                plate: ticket.plate,
+                                road: ticket.road,
+                                mile1: ticket.mile1,
+                                timestamp1: ticket.timestamp1,
+                                mile2: ticket.mile2,
+                                timestamp2: ticket.timestamp2,
+                                speed: ticket.speed,
+                            };
+                            write_channel.send(ticket_frame).await.unwrap();
+                            // FIXME
                         }
-                    }
-                    Some(ClientFrame::Plate { plate, timestamp }) => match connection.client_type {
-                        Some(ClientType::Camera {
-                            mile,
-                            ref road_channel,
-                            ..
-                        }) => {
-                            let plate = Plate::new(plate, mile, timestamp);
-                            road_channel.send(plate).await.unwrap();
-                        }
-                        _ => {
-                            connection.error("Received plate, but client did not registered as a camera before").await;
-                            bail!("Received plate, but client did not registered as a camera before");
-                        }
-                    },
-                    Some(ClientFrame::WantHeartbeat { interval }) => {
-                        if let Err(err) = heartbeat.set_interval(interval) {
-                            connection.error(&err.to_string()).await;
-                        };
-                    }
+                    });
+                }
+            }
+            Some(ClientFrame::Plate { plate, timestamp }) => match connection.client_type {
+                Some(ClientType::Camera {
+                    mile,
+                    ref road_channel,
+                    ..
+                }) => {
+                    let plate = Plate::new(plate, mile, timestamp);
+                    road_channel.send(plate).await.unwrap();
+                }
+                _ => {
+                    connection
+                        .error("Received plate, but client did not registered as a camera before")
+                        .await;
+                    bail!("Received plate, but client did not registered as a camera before");
+                }
+            },
+            Some(ClientFrame::WantHeartbeat { interval }) => {
+                if connection.heartbeat_set {
+                    connection.error("Heartbeat already set").await;
+                } else {
+                    connection.heartbeat_set = true;
+                    tokio::spawn(create_heartbeat(interval, connection.write_channel.clone()));
                 };
             }
-        }
+        };
     }
 }
 
@@ -109,6 +113,7 @@ struct ConnectionHandler {
     read_socket: BufReader<OwnedReadHalf>,
     write_channel: mpsc::Sender<ServerFrame>,
     client_type: Option<ClientType>,
+    heartbeat_set: bool,
 }
 
 impl ConnectionHandler {
@@ -122,6 +127,7 @@ impl ConnectionHandler {
             read_socket: BufReader::new(read),
             write_channel: write_channel_tx,
             client_type: None,
+            heartbeat_set: false,
         }
     }
 
