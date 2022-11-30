@@ -8,7 +8,7 @@ pub(crate) enum ClientFrame {
     Plate { plate: Vec<u8>, timestamp: u32 },
     WantHeartbeat { interval: u32 },
     IAmCamera { road: u16, mile: u16, limit: u16 },
-    IAmDispatcher { num_roads: u8, roads: Vec<u16> },
+    IAmDispatcher { roads: Vec<u16> },
 }
 
 impl ClientFrame {
@@ -41,7 +41,7 @@ impl ClientFrame {
                 for _ in 0..num_roads {
                     roads.push(src.read_u16().await?);
                 }
-                ClientFrame::IAmDispatcher { num_roads, roads }
+                ClientFrame::IAmDispatcher { roads }
             }
 
             Err(err) => {

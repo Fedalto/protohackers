@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::frame::{ClientFrame, ServerFrame};
 use crate::heartbeat::create_heartbeat;
-use crate::road_map::{IslandMap, Plate, ProcessorCommand};
+use crate::road_map::{IslandMap, PlateObservation, ProcessorCommand};
 
 pub(crate) async fn handle_new_connection(
     socket: TcpStream,
@@ -38,11 +38,7 @@ pub(crate) async fn handle_new_connection(
                     .await?;
             }
             Some(ClientFrame::IAmDispatcher { roads, .. }) => {
-                connection
-                    .set_client_type(ClientType::Dispatcher {
-                        roads: roads.clone(),
-                    })
-                    .await?;
+                connection.set_client_type(ClientType::Dispatcher).await?;
                 let (tx, rx) = oneshot::channel();
                 map.ticket_processor
                     .send(ProcessorCommand::NewDispatcher { roads, ch: tx })
@@ -64,8 +60,9 @@ pub(crate) async fn handle_new_connection(
                                 timestamp2: ticket.timestamp2,
                                 speed: ticket.speed,
                             };
-                            write_channel.send(ticket_frame).await.unwrap();
-                            // FIXME
+                            if write_channel.send(ticket_frame).await.is_err() {
+                                info!("Client disconnected before the ticket was dispatched. client={address}");
+                            };
                         }
                     });
                 }
@@ -76,7 +73,7 @@ pub(crate) async fn handle_new_connection(
                     ref road_channel,
                     ..
                 }) => {
-                    let plate = Plate::new(plate, mile, timestamp);
+                    let plate = PlateObservation::new(plate, mile, timestamp);
                     road_channel.send(plate).await.unwrap();
                 }
                 _ => {
@@ -101,11 +98,9 @@ pub(crate) async fn handle_new_connection(
 enum ClientType {
     Camera {
         mile: u16,
-        road_channel: mpsc::Sender<Plate>,
+        road_channel: mpsc::Sender<PlateObservation>,
     },
-    Dispatcher {
-        roads: Vec<u16>,
-    },
+    Dispatcher,
 }
 
 struct ConnectionHandler {

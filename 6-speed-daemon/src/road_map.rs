@@ -19,9 +19,9 @@ pub struct Ticket {
 
 impl Debug for Ticket {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let plate = String::from_utf8_lossy(&self.plate);
+        let formatted_plate = String::from_utf8_lossy(&self.plate);
         f.debug_struct("Ticket")
-            .field("plate", &plate.as_ref())
+            .field("plate", &formatted_plate.as_ref())
             .field("road", &self.road)
             .field("mile1", &self.mile1)
             .field("mile2", &self.mile2)
@@ -32,19 +32,19 @@ impl Debug for Ticket {
     }
 }
 
-pub struct Plate {
+pub struct PlateObservation {
     plate: Vec<u8>,
     mile: u16,
     time: u32,
 }
 
-impl Plate {
+impl PlateObservation {
     pub fn new(plate: Vec<u8>, mile: u16, time: u32) -> Self {
         Self { plate, mile, time }
     }
 }
 
-impl Debug for Plate {
+impl Debug for PlateObservation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let formatted_plate = String::from_utf8_lossy(&self.plate);
         f.debug_struct("Plate")
@@ -57,7 +57,7 @@ impl Debug for Plate {
 
 #[derive(Clone)]
 pub struct IslandMap {
-    roads: Arc<RwLock<HashMap<RoadNumber, mpsc::Sender<Plate>>>>,
+    roads: Arc<RwLock<HashMap<RoadNumber, mpsc::Sender<PlateObservation>>>>,
     pub ticket_processor: mpsc::Sender<ProcessorCommand>,
 }
 
@@ -71,7 +71,11 @@ impl IslandMap {
         }
     }
 
-    pub fn get_or_create_road(&self, road_number: RoadNumber, limit: Speed) -> mpsc::Sender<Plate> {
+    pub fn get_or_create_road(
+        &self,
+        road_number: RoadNumber,
+        limit: Speed,
+    ) -> mpsc::Sender<PlateObservation> {
         {
             let roads = self.roads.read().unwrap();
             if roads.contains_key(&road_number) {
@@ -148,13 +152,18 @@ async fn ticket_processor(mut rx: mpsc::Receiver<ProcessorCommand>) {
     }
 }
 
+/// Check for plates for all cameras in a road and emit tickets if above the speed limit
+// One tokio task is created per road, and all cameras on that road will send all seen plates to
+// the channel in `rx`.
 async fn check_road_plates(
     road_number: RoadNumber,
     road_limit: Speed,
-    mut rx: mpsc::Receiver<Plate>,
+    mut rx: mpsc::Receiver<PlateObservation>,
     ticket_processor: mpsc::Sender<ProcessorCommand>,
 ) {
+    // Map of "Plate number" -> Vec<(mile, timestamp)>
     let mut seen_plates = HashMap::<Vec<u8>, Vec<(u16, u32)>>::new();
+
     while let Some(plate) = rx.recv().await {
         debug!("Seen new plate. road={}, plate={:?}", road_number, plate);
         let other_observations = seen_plates.entry(plate.plate.clone()).or_insert(Vec::new());
