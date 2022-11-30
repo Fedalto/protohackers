@@ -56,7 +56,7 @@ impl ClientFrame {
             // Unknown message type. Return error
             _e => bail!("Unknown error: {_e:?}"),
         };
-        log::debug!("Parsed new frame: {:?}", frame);
+        debug!("Parsed new frame: {:?}", frame);
         Ok(Some(frame))
     }
 }

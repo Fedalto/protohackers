@@ -24,9 +24,9 @@ impl Server {
             let (socket, address) = self.listener.accept().await.unwrap();
             let map = island_map.clone();
             tokio::spawn(async move {
-                handle_new_connection(socket, address, map).await.unwrap();
-                // error!("{}", error_message);
-                // }
+                if let Err(error_message) = handle_new_connection(socket, address, map).await {
+                    error!(%error_message, %address, "Client disconnect");
+                };
             });
         }
     }

@@ -10,12 +10,13 @@ use crate::frame::{ClientFrame, ServerFrame};
 use crate::heartbeat::create_heartbeat;
 use crate::road_map::{IslandMap, PlateObservation, ProcessorCommand};
 
+#[instrument(skip(socket, map))]
 pub(crate) async fn handle_new_connection(
     socket: TcpStream,
     address: SocketAddr,
     map: IslandMap,
 ) -> Result<()> {
-    let mut connection = ConnectionHandler::new(socket, address);
+    let mut connection = ConnectionHandler::new(socket);
 
     loop {
         let frame = match connection.read_frame().await {
@@ -28,6 +29,7 @@ pub(crate) async fn handle_new_connection(
                 bail!("Error reading frame. {err}");
             }
         };
+        let _span = info_span!("Handling new frame", ?frame);
         match frame {
             // Reached EOF
             None => return Ok(()),
@@ -104,7 +106,6 @@ enum ClientType {
 }
 
 struct ConnectionHandler {
-    address: SocketAddr,
     read_socket: BufReader<OwnedReadHalf>,
     write_channel: mpsc::Sender<ServerFrame>,
     client_type: Option<ClientType>,
@@ -112,13 +113,12 @@ struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    pub fn new(socket: TcpStream, address: SocketAddr) -> Self {
+    pub fn new(socket: TcpStream) -> Self {
         let (read, write) = socket.into_split();
         let (write_channel_tx, write_channel_rx) = mpsc::channel(16);
         tokio::spawn(write_frame(write_channel_rx, write));
 
         Self {
-            address,
             read_socket: BufReader::new(read),
             write_channel: write_channel_tx,
             client_type: None,
@@ -142,6 +142,7 @@ impl ConnectionHandler {
     ///
     /// # Cancel safety
     /// This is cancel safe.
+    #[instrument(skip(self), level = "debug")]
     pub async fn read_frame(&mut self) -> Result<Option<ClientFrame>> {
         ClientFrame::parse(&mut self.read_socket).await
     }
@@ -154,6 +155,7 @@ impl ConnectionHandler {
     }
 }
 
+#[instrument(skip_all, level = "debug")]
 async fn write_frame(
     mut channel: mpsc::Receiver<ServerFrame>,
     socket: OwnedWriteHalf,

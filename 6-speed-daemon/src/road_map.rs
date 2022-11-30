@@ -71,6 +71,7 @@ impl IslandMap {
         }
     }
 
+    #[instrument(skip(self))]
     pub fn get_or_create_road(
         &self,
         road_number: RoadNumber,
@@ -111,6 +112,7 @@ pub enum ProcessorCommand {
 /// Because tickets are emitted independently on each road, instead of sending directly to the
 /// Dispatchers, all tickets are sent to this processor first so it can discard tickets
 /// if a car plate has already received one in that day.
+#[instrument(skip_all)]
 async fn ticket_processor(mut rx: mpsc::Receiver<ProcessorCommand>) {
     let mut ticket_days = HashMap::new(); // Plate number -> days
     let mut tickets_by_road = HashMap::new(); // Road Number -> Tickets channel
@@ -155,6 +157,7 @@ async fn ticket_processor(mut rx: mpsc::Receiver<ProcessorCommand>) {
 /// Check for plates for all cameras in a road and emit tickets if above the speed limit
 // One tokio task is created per road, and all cameras on that road will send all seen plates to
 // the channel in `rx`.
+#[instrument(skip(rx, ticket_processor))]
 async fn check_road_plates(
     road_number: RoadNumber,
     road_limit: Speed,
