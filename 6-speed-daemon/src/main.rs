@@ -36,9 +36,20 @@ fn convert_level_filter(filter: log::LevelFilter) -> tracing_subscriber::filter:
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli: Cli = Cli::parse();
-    let subscriber = tracing_subscriber::fmt::layer()
+
+    let subscriber_stdout = tracing_subscriber::fmt::layer()
         .with_filter(convert_level_filter(cli.verbose.log_level_filter()));
-    tracing_subscriber::registry().with(subscriber).init();
+
+    let tracer = opentelemetry_jaeger::new_agent_pipeline()
+        .with_service_name("speed-daemon")
+        .install_simple()?;
+    let open_telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    tracing_subscriber::registry()
+        .with(open_telemetry)
+        // Continue logging to stdout
+        .with(subscriber_stdout)
+        .try_init()?;
 
     let bind_address = (cli.host, cli.port);
     let listener = TcpListener::bind(bind_address).await?;
